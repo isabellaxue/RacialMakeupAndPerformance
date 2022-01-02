@@ -1,0 +1,274 @@
+---
+title: "Final project - How Racial Makeup Impact Graduation Outcome and Standarized Test Outcome"
+author: "Isabella Xue, Rebecca Li, Yunqing Xiao, Luca Chen"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkBlue;
+  text-align: center;
+}
+h4.author { /* Header 4 - and the author and data headers use this too  */
+    font-size: 18px;
+  text-align: center;
+}
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+# install.packages("kableExtra")
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(patchwork)
+library(forcats)
+library(cowplot)
+library(kableExtra)
+
+```
+
+### Introduction
+
+Nowadays, debates about racial equality became one of the most hotly discussed topic not only in the US, but also spreading all across the world to raise the awareness about equality and impact of racial difference. However, why and how difference racial and ethnic groups can make difference in job market, education, and all kinds of fields is still a question we need to dig in depth. In order to recognize and compare whether difference in race are related to the difference in outcome, we study the relationship between racial makeup and the high school graduation outcome and standardized test score (SAT) in New York City in 2012. By clearing and joining data about the demographic information, SAT score, and graduation outcome about high school in NYC during 2012 from NYC Open Data (https://opendata.cityofnewyork.us/). Thus, we can study about whether the racial makeup of a high school has significant impact on graduation outcome and standardized test score using multiple linear regression model to examine the relationship between difference race and the outcome.
+
+### Data
+
+In this research project, we use data on NYC Open Data website. Our primary focuses are the dempgraphic data, SAT score, and graduation outcome in genrall of NYC high school in 2012
+
+>The demographic data set (https://data.cityofnewyork.us/Education/2006-2012-School-Demographics-and-Accountability-S/ihfw-zy9j) study the school accounts of NYC public school student populations served by grade, special programs, ethnicity, gender and Title I funded programs from year 2006 - 2012. In this data set, we primarly select the information about racial information, the district code and the name of the school, and the gender information within the school year of 2012.
+
+>(DOE), D. (2013, February 21). 2006 - 2012 School demographics and accountability Snapshot: NYC open data. Retrieved May 04, 2021, from https://data.cityofnewyork.us/Education/2006-2012-School-Demographics-and-Accountability-S/ihfw-zy9j
+
+#### Demographic Information of NYC High School in 2012
+```{r echo=FALSE}
+demographic_2012 <- read.csv("2006_-_2012_School_Demographics_and_Accountability_Snapshot.csv", header = T)
+demographic_2012 <- demographic_2012 %>%
+  select(DBN, Name, schoolyear, total_enrollment, grade9, grade10, grade11, grade12, asian_num, asian_per, black_num, black_per, hispanic_num, hispanic_per, white_num, white_per, male_num, male_per) %>%
+  filter(!is.na(grade12), schoolyear==20112012)%>%
+  select(-grade9, -grade10, -grade11, -grade12)
+# demographic_2012
+head(demographic_2012) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+>The SAT Results data set (https://data.cityofnewyork.us/Education/2012-SAT-Results/f9bf-2cp4) study the school level results for New York City on the SAT. Results are available at the school level for the graduating seniors of 2012. Records contain 2012 College-bound seniors mean SAT scores taken during SY 2012. The data includes the result of number of test taker, the total socre, and categorical score in reading, writing, and math, We first changed the result to numeric numbers and give more descriptive title for each column.
+
+>(DOE), D. (2019, January 03). 2012 sat Results: NYC open data. Retrieved May 04, 2021, from https://data.cityofnewyork.us/Education/2012-SAT-Results/f9bf-2cp4
+
+
+#### SAT Results of NYC High School in 2012
+```{r echo=FALSE}
+SAT <- read.csv("2012_SAT_Results.csv")
+SAT <- SAT%>%
+  mutate(`Num.of.SAT.Test.Takers`=as.numeric(`Num.of.SAT.Test.Takers`),
+         `SAT.Critical.Reading.Avg..Score` = as.numeric(`SAT.Critical.Reading.Avg..Score`),
+         `SAT.Math.Avg..Score` = as.numeric(`SAT.Math.Avg..Score`),
+         `SAT.Writing.Avg..Score` = as.numeric(`SAT.Writing.Avg..Score`))
+
+SAT <- SAT %>%
+  drop_na()%>%
+  rename(Reading = `SAT.Critical.Reading.Avg..Score`, 
+         Math = `SAT.Math.Avg..Score`,
+         Writing = `SAT.Writing.Avg..Score`) %>%
+  mutate(Total_score = Reading+Math+Writing)
+head(SAT) %>%
+  rename(`Number of Test Taker` = `Num.of.SAT.Test.Takers`,
+         `School Name` =SCHOOL.NAME)%>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+>The Graduation Outcome data set (https://data.cityofnewyork.us/Education/2001-2013-Graduation-Outcomes/9d6u-jzxb) study the New York State calculation method adopted for the Cohort. The cohort consists of all students who first entered 9th grade in a given school year. Graduates are defined as those students earning either a Local or Regents diploma. In order to clean this dataset, we first filter the student of cohort year 2012 and renames the column to more descriptive column names such as total regent student, advanced regent student, drop out students, etc.
+
+>Education, D. (2019, April 25). 2001 - 2013 Graduation Outcomes: NYC open data. Retrieved May 04, 2021, from https://data.cityofnewyork.us/Education/2001-2013-Graduation-Outcomes/9d6u-jzxb
+
+#### Graduation Outcome of NYC High School in 2012
+
+```{r echo=FALSE}
+graduation_outcome = read_csv("2001_-_2013_Graduation_Outcomes.csv")
+grads_outcome <- graduation_outcome %>%
+  filter(`Cohort Year` == "2012" & Cohort == "4 year June") %>%
+  rename(`Grads/Cohort`=`% of cohort`,
+         `Total Regent/Cohort`=`% of cohort 1`,
+         `Total Regent/Grads`= `% of grads`,
+         `Adv Regents/Cohort` = `% of cohort 2`,
+         `Adv Regents/Grads`=`% of grads 1`,
+         `w/o Adv Regents/Cohort`=`% of cohort 3`,
+         `w/o Adv Regents/Grads`=`% of grads 2`,
+         `Local/Cohort`=`% of cohort 4`,
+         `Local/Grads`=`% of grads 3`,
+         `Still Enroll/Cohort`=`% of cohort 5`,
+         `Dropout/Cohort`=`% of cohort 6`) %>%
+  select(-Category)
+head(grads_outcome) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+> To comgine all the information, we used inner join to join all three datasets into a big datafram by their District Code(DBN) and align them.
+
+#### Combine Graduation and SAT Information of NYC High School in 2012
+```{r echo=FALSE}
+join1 = inner_join(grads_outcome, demographic_2012, by = "DBN")
+NY_Grads = inner_join(join1,SAT,by = "DBN")
+#NY_Grads
+names <- NY_Grads %>%
+  select(`School Name`, `SCHOOL.NAME`, `Name`)
+NY_Grads <- NY_Grads[-c(1, 11, 92, 111, 118, 120, 175, 207, 218, 229), ]
+NY_Grads <- NY_Grads[ , !(names(NY_Grads) %in% c("Cohort Year", "Cohort", "Name", "schoolyear", "SCHOOL.NAME"))]
+head(NY_Grads) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+> Because we are studying the impact of racial make up to graduation outcome and SAT score, we them generate a graph displaying the total racial distribution of all students in NYC high shcool in 2012. Through the graph, we can understand the distribution of races within the entire school dirstric of NYC with 26% of white students, 26% of black student, 15% of Asian students, and 32% of Hispanic students.
+
+```{r echo=FALSE}
+racial_makeup <-NY_Grads%>%
+  summarize(white_num = sum(black_num),
+            asian_num = sum(asian_num),
+            hispanic_num = sum(hispanic_num),
+            black_num = sum(black_num))
+slices <- c(89038, 49982,109314, 89038)
+lbls <- c("White", "Asian", "Hispanic", "Black")
+pct <- round(slices/sum(slices)*100)
+lbls <- paste(lbls, pct) # add percents to labels
+lbls <- paste(lbls,"%",sep="") # ad % to labels
+pie(slices,labels = lbls, col=rainbow(length(lbls)),
+   main="Racial Makeup of NYC High School Graduates")
+```
+
+### Method 
+
+In order to find out if racial makeup of a school has effect on the student's average SAT score, we used multiple linear regression model to examine the relationship. We chose to use this statistical method because it controls every variable in our model, indicating that we can learn the role of each independent variable without worrying about the other variables in the model. This is ideal for our research question because we also aim to look at the effect of each racial group individually. In addition, we were able to look at how well the model is fitting the actual data by interpreting adjusted R-squared. 
+
+### Result
+
+To look at if racial makeup has an effect on SAT score, we examined `SAT total score`, `SAT reading score`, `SAT math score` and `SAT writing score` individually.
+
+```{r echo=FALSE}
+lm1 <- lm(Total_score ~ asian_per+black_per+white_per+hispanic_per, data = NY_Grads)
+summary(lm1)
+# black_per amd hispanic_per significant 
+asian_total <- ggplot(NY_Grads, aes(asian_per, Total_score)) +
+  geom_point() +
+  ggtitle("Percentage of Asian student vs. SAT total score")+
+  theme_bw()+
+  scale_x_continuous(trans = "log") +
+  geom_smooth(color = "red")
+black_total <- ggplot(NY_Grads, aes(black_per, Total_score)) +
+  geom_point() +
+  ggtitle("Percentage of Black student vs. SAT total score") +
+  theme_bw() +
+  scale_x_continuous(trans = "log")+
+  geom_smooth(color = "red")
+white_total <- ggplot(NY_Grads, aes(white_per, Total_score)) +
+  geom_point() +
+  ggtitle("Percentage of White student vs. SAT total score")+
+  theme_bw()+
+  scale_x_continuous(trans = "log")+
+  geom_smooth(color = "red")
+hispanic_total <- ggplot(NY_Grads, aes(hispanic_per, Total_score)) +
+  geom_point() +
+  ggtitle("Percentage of Hispanic student vs. SAT total score")+
+  theme_bw()+
+  scale_x_continuous(trans = "log")+
+  geom_smooth(color = "red")
+
+plot_grid(asian_total, black_total, white_total, hispanic_total)
+```
+
+Firstly, the output of multiple linear regression model shows that **F-statistic = 115.1 (p < 2.2e-16)**, indicating that we should clearly reject the null hypothesis that the variables percentage of Asian, White, Black, Hispanic has no effect on SAT total score. The **Adjusted R-squared = 0.5537**, which indicates that roughly 55% of the variance found in SAT total score can be explained by the four predictor variables. In addition, we can see that the percentage of `Black` and `Hispanic` are significant in this model from p-value. 
+
+The graph shows us upward trends of SAT total score versus percentages of Asian and White as they increase, while it decreases as the percentage of Hispanic increases and a more complex pattern that the score increase then decrease as the percentage of Black increases. 
+
+Next, we look at scores of each section.  
+
+
+```{r echo=FALSE}
+lm2 <- lm(Reading ~ asian_per+black_per+white_per+hispanic_per, data = NY_Grads)
+summary(lm2)
+lm3 <- lm(Math ~ asian_per+black_per+white_per+hispanic_per, data = NY_Grads)
+summary(lm3)
+lm4 <- lm(Writing ~ asian_per+black_per+white_per+hispanic_per, data = NY_Grads)
+summary(lm4)
+```
+
+The output of multiple linear regression models of reading, math, and writing score show that **F-statistic = 81.39 (p < 2.2e-16)**, **F-statistic = 173.3 (p < 2.2e-16)**, **F-statistic = 92.28 (p < 2.2e-16)**, indicating that we should reject the null hypothesis that the variables percentage of Asian, White, Black, Hispanic has no effect on SAT reading, math, and writing score. The results also shows that percentage of `Asian`, `Black`, `Hispanic` are significant for reading score; percentage of `Black`, `Hispanic` are significant for math score; percentage of `Asian`, `Black`, `Hispanic` are significant for writing score.
+
+In addition, the Adjusted R-squared of model for reading, math, and writing scores are **0.4663, 0.6519, 0.498**, indicating that the multiple linear regression model explain 47%, 65%, 50% of the variance found in SAT reading, math, and writing scores. 
+
+### Analysis 2
+
+#### Method
+From the previous analysis, we see that the percentage of black and white in high school is negatively related with the total SAT score. In the following analysis, we are going to resolve to major questions related to the graduation outcome. We will look at the `Advance Regents/Cohort` column as a reference for the percentage of best graduation outcome.
+
+First, we want to find the relationship between the percentage of best graduation outcome and the demographic makeup of each high school. We use multiple regression to test this assumption because we want to control the number of students in other races when testing the relationship.
+
+```{r echo=FALSE}
+advance.lm = lm(`Adv Regents/Cohort` ~ asian_num + black_num + hispanic_num + white_num, data = NY_Grads)
+summary(advance.lm)
+```
+
+Since the p-value for all of the races are small, we can say that the number of asians and whites are positively related to the graduation outcome. The number of black and hispanic is negatively related to graduation outcome.
+
+#### Method(testing confounding variable)
+
+Since we already find that `black` and `hispanic` is negatively related to `Total_score`, next we are going to find whether the Total SAT score has an relationship with the graduation outcome. First, we use a simple linear regression to test `Total_score` and `Graduation outcome`. Second, we will add back the number of different races by running a multiple regression to test whether there is a confounding variable due to the control of SAT score.
+```{r echo=FALSE}
+score.lm = lm(`Adv Regents/Cohort` ~ Total_score,data = NY_Grads)
+summary(score.lm)
+```
+
+The p-value of single regression shows a significant positive relation and next we should test whether there is a confounding variable.
+
+```{r echo=FALSE}
+cor(NY_Grads[c("asian_num","black_num","hispanic_num","white_num","Total_score")])
+```
+
+```{r echo=FALSE}
+total.lm = lm(`Adv Regents/Cohort` ~ asian_num + black_num + hispanic_num + white_num + Total_score, data = NY_Grads)
+summary(total.lm)
+```
+
+#### Results
+
+The p-value is equally small for `Total_score` after we control for different races. Thus, we can conclude that `Total_score` is not a confounding variable and the higher the SAT score, the more likely students would have a greater graduation outcome.
+
+However, we find that `hispanic` and `white` is not significant after controlling for the `Total_score`. The reason might be that `hispanic_num` might be a confounding variable for testing graduation outcome. In the previous analysis, `hispanic` is negatively related to graduation outcome, while this might be the reason that we ignore the low SAT score before controlling. After controlling for total_score, the number of Hispanic itself is no longer significant, the same as white.
+
+Thus,since the p-value is small for Asian, black and total_score, we conclude that the `number of asians` and `Total_score` is positively related to the graduation outcome. The `number of black` is negatively related to graduation outcomes.
+
+In context, high school tend to have better graduation outcomes if they have more Asian students and less black. The reason why Asian students have better outcomes should be determined in the future, but at least SAT score is one of the factor that explain the relationship.
+
+
+### Conclusion
+
+
+- return to your thesis statement/hypothesis. 
+ 
+There are clearly a number of variables that impact the performance of high school students, including both graduation outcome and standardized test score and we maily focus on the impact from races. Our exploration of whether or not racial makeup of the student in a high school is one of those variables is conclusive and it also provides some insights. An important note about this analysis is that we use the percentage of each race to see how they affect the total score by adding average reading, math, and writing score. In our framework, Hispanic and Black percentages appears to have a significant association with student’s total SAT score. Secondly, after controlling the total score, the relationship we saw was that as the number of Asian students increases, graduation outcome tends to be better, and as the number of Black students decreases, graduation outcome tends to be better. 
+
+Thus, the number of Asian students is an indicator for higher graduation outcome and Asian students tend to have higher SAT scores is one of the reason which explain the higher graduation outcomes.
+
+- reference back to key figures/tables/equations and highlight the important pieces. 
+
+The graph with percentage of 4 different students race vs. SAT total score is based on the multiple linear regression model, which shows that SAT total score increase as Asian and White percentages increase. Whereas, as Hispanic percentage increases, SAT total score decreases and as Black percentage increases SAT total score increase then decrease. 
+In addition, by implementing simple and multiple linear regression to test Total_score and Graduation outcome, we found the positive relationship between them. Then, by adding the number of students for all races and controlling total score to multiple regression, we found the number of Hispanic and Whites are confounding variable to graduation outcome. Only the number of Asian and Black are related to the students graduation outcome.
+ 
+ - Describe the limitations of your analysis, both big and small. 
+ 
+*One of the limitation of our analysis is the limitation of data, until now, we know the relationship between races and graduation outcome but we cannot study the reasons behind this due to lack of data. In order to specifically discuss the detailed reasons behind race and educational outcome, we need to consider more about the students profile other than SAT scores, such as the strength of extracurricular or GPA. However, these data usually have privacy restrictions. Furthermore, we should also consider students from different graduation year and cities other than New York.*
+ 
+ - Describe issues that remain uncertain, but could be explored more fully with your available resources (+ more time).
+ 
+*In order to further study on impact of racial difference in graduation outcome, we can continue to discuss the reason why race can make difference in graduation outcome. We could study the admission requirement for different races by controlling the graduation outcome at some level. Moreover, we could study whether the amount of educational resources is distributed equally to every races, or how much time on average do students from each racial group get to spend on study. The debate of racial inequality and difference should be studied more in order to understand the reason of the difference and try to improve the problems together. *
